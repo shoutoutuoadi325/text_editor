@@ -46,3 +46,12 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Java
+*.class
+*.jar
+!java/lib/*.jar
+target/
+.classpath
+.project
+.settings/

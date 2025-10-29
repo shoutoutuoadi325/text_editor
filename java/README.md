@@ -58,8 +58,11 @@ mvn package
 java -jar target/text-editor-1.0.0.jar
 
 # 方法2: 使用Maven
+# Linux/macOS:
 mvn exec:java -Dexec.mainClass="com.texteditor.Main"
-```
+
+# Windows PowerShell:
+mvn exec:java '-Dexec.mainClass=com.texteditor.Main'
 
 ## 功能列表
 
@@ -181,7 +184,7 @@ java/
 # 运行所有测试
 mvn test
 
-# 查看测试报告
+# 查看测试报告（路径为./java/target/surefire-reports/）
 mvn surefire-report:report
 ```
 
@@ -199,8 +202,6 @@ mvn surefire-report:report
 - UTF-8编码
 
 ## 评分要点
-
-本项目满足Lab1的所有评分要求：
 
 ### 架构设计（15分）
 - ✅ 清晰的模块划分（Workspace、Editor、Command、Logging）
@@ -223,7 +224,3 @@ mvn surefire-report:report
 - ✅ 符合Java命名规范
 - ✅ 代码逻辑清晰
 - ✅ 遵循Java编码规范
-
-## 开发者
-
-本项目为Lab1实验的完整实现。

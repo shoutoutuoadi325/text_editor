@@ -2,7 +2,11 @@ package com.texteditor;
 
 import com.texteditor.command.*;
 import com.texteditor.editor.Editor;
+import com.texteditor.editor.XmlEditor;
 import com.texteditor.model.Position;
+import com.texteditor.spellcheck.SimpleSpellChecker;
+import com.texteditor.spellcheck.SpellCheckService;
+import com.texteditor.spellcheck.SpellChecker;
 import com.texteditor.util.DirectoryTree;
 import com.texteditor.workspace.Workspace;
 
@@ -13,14 +17,19 @@ import java.util.regex.Pattern;
 
 /**
  * Command processor that parses and executes user commands.
+ * 支持文本编辑器和 XML 编辑器的命令处理。
  */
 public class CommandProcessor {
     private final Workspace workspace;
     private boolean running;
+    private final SpellCheckService spellCheckService;
 
     public CommandProcessor(Workspace workspace) {
         this.workspace = workspace;
         this.running = true;
+        // 初始化拼写检查服务（使用简单的内置拼写检查器）
+        SpellChecker spellChecker = new SimpleSpellChecker();
+        this.spellCheckService = new SpellCheckService(spellChecker);
     }
 
     /**
@@ -88,6 +97,29 @@ public class CommandProcessor {
                 case "log-show":
                     handleLogShow(parts);
                     break;
+                // Lab2 新增的 XML 编辑命令
+                case "insert-before":
+                    handleInsertBefore(parts);
+                    break;
+                case "append-child":
+                    handleAppendChild(parts);
+                    break;
+                case "edit-id":
+                    handleEditId(parts);
+                    break;
+                case "edit-text":
+                    handleEditText(parts);
+                    break;
+                case "delete-element":
+                    handleDeleteElement(parts);
+                    break;
+                case "xml-tree":
+                    handleXmlTree(parts);
+                    break;
+                // Lab2 新增的拼写检查命令
+                case "spell-check":
+                    handleSpellCheck(parts);
+                    break;
                 case "exit":
                     handleExit();
                     break;
@@ -152,16 +184,35 @@ public class CommandProcessor {
 
     private void handleInit(String[] parts) throws IOException {
         if (parts.length < 2) {
-            System.out.println("用法: init <file> [with-log]");
+            System.out.println("用法: init <text|xml> <file> [with-log]");
             return;
         }
 
-        String filePath = parts[1];
-        boolean withLog = parts.length > 2 && parts[2].equals("with-log");
+        // Lab2 新增：支持 init <text|xml> <file> [with-log] 格式
+        String fileType;
+        String filePath;
+        boolean withLog;
+
+        // 判断是 Lab1 格式还是 Lab2 格式
+        if (parts[1].equalsIgnoreCase("text") || parts[1].equalsIgnoreCase("xml")) {
+            // Lab2 格式: init <text|xml> <file> [with-log]
+            if (parts.length < 3) {
+                System.out.println("用法: init <text|xml> <file> [with-log]");
+                return;
+            }
+            fileType = parts[1];
+            filePath = parts[2];
+            withLog = parts.length > 3 && parts[3].equals("with-log");
+        } else {
+            // Lab1 格式: init <file> [with-log]（保持向后兼容）
+            fileType = "text";
+            filePath = parts[1];
+            withLog = parts.length > 2 && parts[2].equals("with-log");
+        }
         
-        workspace.initFile(filePath, withLog);
+        workspace.initFile(fileType, filePath, withLog);
         workspace.getLogManager().onCommandExecuted(filePath, 
-            "init " + filePath + (withLog ? " with-log" : ""));
+            "init " + fileType + " " + filePath + (withLog ? " with-log" : ""));
         System.out.println("已创建: " + filePath);
     }
 
@@ -218,14 +269,23 @@ public class CommandProcessor {
             return;
         }
 
+        // Lab2 更新：显示编辑时长
         for (String filePath : workspace.getOpenFiles()) {
             Editor editor = workspace.getEditor(filePath);
             boolean isActive = filePath.equals(workspace.getActiveFilePath());
             boolean isModified = editor.isModified();
 
-            System.out.print(isActive ? ">" : " ");
-            System.out.print(filePath);
-            System.out.println(isModified ? "*" : "");
+            // 格式：>file.txt* (X小时Y分钟) 或 file.txt (X秒)
+            StringBuilder sb = new StringBuilder();
+            sb.append(isActive ? ">" : " ");
+            sb.append(filePath);
+            sb.append(isModified ? "*" : "");
+            
+            // 获取并显示编辑时长
+            String duration = workspace.getStatistics().getFormattedEditingTime(filePath);
+            sb.append(" (").append(duration).append(")");
+            
+            System.out.println(sb.toString());
         }
     }
 
@@ -429,10 +489,245 @@ public class CommandProcessor {
             }
         }
 
+        // 停止统计计时
+        workspace.onExit();
+        
         // Save workspace state
         workspace.saveWorkspaceState();
         running = false;
         System.out.println("再见！");
+    }
+
+    // ===================== Lab2 新增的 XML 编辑命令处理 =====================
+
+    /**
+     * 处理 insert-before 命令：在目标元素前插入新元素。
+     * 用法: insert-before <tagName> <newId> <targetId> ["text"]
+     */
+    private void handleInsertBefore(String[] parts) {
+        if (parts.length < 4) {
+            System.out.println("用法: insert-before <tagName> <newId> <targetId> [\"text\"]");
+            return;
+        }
+
+        Editor editor = workspace.getActiveEditor();
+        if (editor == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        if (!(editor instanceof XmlEditor)) {
+            System.out.println("insert-before 命令仅适用于 XML 文件");
+            return;
+        }
+
+        XmlEditor xmlEditor = (XmlEditor) editor;
+        String tagName = parts[1];
+        String newId = parts[2];
+        String targetId = parts[3];
+        String text = parts.length > 4 ? parts[4] : "";
+
+        Command command = new XmlInsertBeforeCommand(xmlEditor, tagName, newId, targetId, text);
+        xmlEditor.executeCommand(command);
+        
+        workspace.getLogManager().onCommandExecuted(
+            workspace.getActiveFilePath(), command.getDescription());
+        System.out.println("已插入元素");
+    }
+
+    /**
+     * 处理 append-child 命令：在父元素内追加子元素。
+     * 用法: append-child <tagName> <newId> <parentId> ["text"]
+     */
+    private void handleAppendChild(String[] parts) {
+        if (parts.length < 4) {
+            System.out.println("用法: append-child <tagName> <newId> <parentId> [\"text\"]");
+            return;
+        }
+
+        Editor editor = workspace.getActiveEditor();
+        if (editor == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        if (!(editor instanceof XmlEditor)) {
+            System.out.println("append-child 命令仅适用于 XML 文件");
+            return;
+        }
+
+        XmlEditor xmlEditor = (XmlEditor) editor;
+        String tagName = parts[1];
+        String newId = parts[2];
+        String parentId = parts[3];
+        String text = parts.length > 4 ? parts[4] : "";
+
+        Command command = new XmlAppendChildCommand(xmlEditor, tagName, newId, parentId, text);
+        xmlEditor.executeCommand(command);
+        
+        workspace.getLogManager().onCommandExecuted(
+            workspace.getActiveFilePath(), command.getDescription());
+        System.out.println("已追加子元素");
+    }
+
+    /**
+     * 处理 edit-id 命令：修改元素的 ID。
+     * 用法: edit-id <oldId> <newId>
+     */
+    private void handleEditId(String[] parts) {
+        if (parts.length < 3) {
+            System.out.println("用法: edit-id <oldId> <newId>");
+            return;
+        }
+
+        Editor editor = workspace.getActiveEditor();
+        if (editor == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        if (!(editor instanceof XmlEditor)) {
+            System.out.println("edit-id 命令仅适用于 XML 文件");
+            return;
+        }
+
+        XmlEditor xmlEditor = (XmlEditor) editor;
+        String oldId = parts[1];
+        String newId = parts[2];
+
+        Command command = new XmlEditIdCommand(xmlEditor, oldId, newId);
+        xmlEditor.executeCommand(command);
+        
+        workspace.getLogManager().onCommandExecuted(
+            workspace.getActiveFilePath(), command.getDescription());
+        System.out.println("已修改元素ID");
+    }
+
+    /**
+     * 处理 edit-text 命令：修改元素的文本内容。
+     * 用法: edit-text <elementId> "text"
+     */
+    private void handleEditText(String[] parts) {
+        if (parts.length < 3) {
+            System.out.println("用法: edit-text <elementId> \"text\"");
+            return;
+        }
+
+        Editor editor = workspace.getActiveEditor();
+        if (editor == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        if (!(editor instanceof XmlEditor)) {
+            System.out.println("edit-text 命令仅适用于 XML 文件");
+            return;
+        }
+
+        XmlEditor xmlEditor = (XmlEditor) editor;
+        String elementId = parts[1];
+        String text = parts[2];
+
+        Command command = new XmlEditTextCommand(xmlEditor, elementId, text);
+        xmlEditor.executeCommand(command);
+        
+        workspace.getLogManager().onCommandExecuted(
+            workspace.getActiveFilePath(), command.getDescription());
+        System.out.println("已修改元素文本");
+    }
+
+    /**
+     * 处理 delete-element 命令：删除元素及其所有子元素。
+     * 用法: delete-element <elementId>
+     */
+    private void handleDeleteElement(String[] parts) {
+        if (parts.length < 2) {
+            System.out.println("用法: delete-element <elementId>");
+            return;
+        }
+
+        Editor editor = workspace.getActiveEditor();
+        if (editor == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        if (!(editor instanceof XmlEditor)) {
+            System.out.println("delete-element 命令仅适用于 XML 文件");
+            return;
+        }
+
+        XmlEditor xmlEditor = (XmlEditor) editor;
+        String elementId = parts[1];
+
+        Command command = new XmlDeleteElementCommand(xmlEditor, elementId);
+        xmlEditor.executeCommand(command);
+        
+        workspace.getLogManager().onCommandExecuted(
+            workspace.getActiveFilePath(), command.getDescription());
+        System.out.println("已删除元素");
+    }
+
+    /**
+     * 处理 xml-tree 命令：显示 XML 树形结构。
+     * 用法: xml-tree [file]
+     */
+    private void handleXmlTree(String[] parts) {
+        String filePath;
+        if (parts.length > 1) {
+            filePath = parts[1];
+        } else {
+            filePath = workspace.getActiveFilePath();
+        }
+
+        if (filePath == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        Editor editor = workspace.getEditor(filePath);
+        if (editor == null) {
+            System.out.println("文件未打开: " + filePath);
+            return;
+        }
+
+        if (!(editor instanceof XmlEditor)) {
+            System.out.println("xml-tree 命令仅适用于 XML 文件");
+            return;
+        }
+
+        XmlEditor xmlEditor = (XmlEditor) editor;
+        String tree = xmlEditor.generateTree();
+        System.out.println(tree);
+    }
+
+    // ===================== Lab2 新增的拼写检查命令处理 =====================
+
+    /**
+     * 处理 spell-check 命令：检查拼写错误。
+     * 用法: spell-check [file]
+     */
+    private void handleSpellCheck(String[] parts) {
+        String filePath;
+        if (parts.length > 1) {
+            filePath = parts[1];
+        } else {
+            filePath = workspace.getActiveFilePath();
+        }
+
+        if (filePath == null) {
+            System.out.println("没有活动文件");
+            return;
+        }
+
+        Editor editor = workspace.getEditor(filePath);
+        if (editor == null) {
+            System.out.println("文件未打开: " + filePath);
+            return;
+        }
+
+        String result = spellCheckService.check(editor);
+        System.out.println(result);
     }
 
     /**

@@ -4,30 +4,33 @@
 
 ### 1.1 模块划分
 
-本项目采用分层架构，主要包含以下模块：
+本项目采用分层架构，Lab2 在 Lab1 基础上新增了 XML 编辑、统计和拼写检查模块：
 
 ```
-┌─────────────────────────────────────────┐
-│         Presentation Layer              │
-│    (CommandProcessor, Main)             │
-└─────────────────┬───────────────────────┘
-                  │
-┌─────────────────▼───────────────────────┐
-│         Business Logic Layer            │
-│  ┌──────────┐  ┌──────────┐             │
-│  │Workspace │  │ Command  │             │
-│  │          │  │ Pattern  │             │
-│  └─────┬────┘  └──────────┘             │
-│        │                                 │
-│  ┌─────▼────┐  ┌──────────┐             │
-│  │ Editor   │  │ Logging  │             │
-│  └──────────┘  └──────────┘             │
-└─────────────────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────┐
-│         Data Layer                      │
-│    (Model, Persistence)                 │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Presentation Layer                        │
+│              (CommandProcessor, Main)                        │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                   Business Logic Layer                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  Workspace   │  │   Command    │  │   SpellCheck     │  │
+│  │              │  │   Pattern    │  │   (适配器模式)    │  │
+│  └──────┬───────┘  └──────────────┘  └──────────────────┘  │
+│         │                                                    │
+│  ┌──────▼───────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │   Editor     │  │   Logging    │  │   Statistics     │  │
+│  │ (多态实现)    │  │  (观察者)    │  │   (观察者/装饰器) │  │
+│  └──────────────┘  └──────────────┘  └──────────────────┘  │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                      Data Layer                              │
+│     (Model: XmlElement, Position, EditorState)              │
+│     (XML: XmlAdapter, XmlParseException)                    │
+│     (Persistence: WorkspaceMemento)                         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.2 模块职责
@@ -36,24 +39,33 @@
 
 - **Main**: 应用入口，初始化系统，启动主循环
 - **CommandProcessor**: 命令解析器，负责解析用户输入并分发到相应的处理逻辑
+  - Lab2 新增：支持 XML 编辑命令和拼写检查命令
 
 #### Business Logic Layer（业务逻辑层）
 
 - **Workspace**: 工作区管理器
-  - 管理所有打开的编辑器
+  - 管理所有打开的编辑器（文本和 XML）
   - 维护活动编辑器
   - 协调各模块交互
   - 提供状态持久化功能
+  - **Lab2 新增**：集成 SessionStatistics 进行编辑时长统计
 
-- **Editor**: 编辑器接口及实现
-  - TextEditor: 文本编辑器实现
-  - 管理文本内容（使用List<String>存储行）
-  - 提供编辑操作（append, insert, delete, replace, show）
-  - 维护undo/redo历史
+- **Editor**: 编辑器接口及实现（**Lab2 扩展多态设计**）
+  - **TextEditor**: 文本编辑器实现
+    - 管理文本内容（使用List<String>存储行）
+    - 提供编辑操作（append, insert, delete, replace, show）
+    - 维护undo/redo历史
+  - **XmlEditor** (Lab2 新增): XML 编辑器实现
+    - 管理 XML DOM 树结构
+    - 提供 XML 编辑操作（insert-before, append-child, edit-id, edit-text, delete-element）
+    - 生成 XML 树形结构显示（xml-tree）
+    - 维护 id -> element 快速查找映射
+    - 支持 undo/redo 功能
 
 - **Command**: 命令模式实现
   - Command接口：定义命令的执行和撤销
-  - 具体命令：AppendCommand, InsertCommand, DeleteCommand, ReplaceCommand
+  - 文本命令：AppendCommand, InsertCommand, DeleteCommand, ReplaceCommand
+  - **Lab2 新增** XML命令：XmlInsertBeforeCommand, XmlAppendChildCommand, XmlEditIdCommand, XmlEditTextCommand, XmlDeleteElementCommand
   - 支持undo/redo功能
 
 - **Logging**: 日志模块
@@ -62,12 +74,29 @@
   - 记录命令执行历史
   - 提供日志查看功能
 
+- **Statistics** (Lab2 新增): 统计模块
+  - SessionStatistics: 会话统计管理器
+    - 跟踪每个文件的编辑时长
+    - 支持文件切换时的自动计时
+    - 提供格式化的时长显示
+
+- **SpellCheck** (Lab2 新增): 拼写检查模块
+  - SpellChecker: 拼写检查接口（适配器模式）
+  - SimpleSpellChecker: 简单的内置拼写检查实现
+  - SpellCheckService: 拼写检查服务，处理文本和 XML 文件
+  - SpellingError: 拼写错误信息类
+
 #### Data Layer（数据层）
 
 - **Model**: 数据模型
   - Position: 位置信息（行号、列号）
   - EditorState: 编辑器状态（用于持久化）
+  - **XmlElement** (Lab2 新增): XML 元素模型，使用组合模式表示树形结构
   
+- **XML** (Lab2 新增): XML 处理
+  - XmlAdapter: XML 解析和序列化适配器（适配器模式）
+  - XmlParseException: XML 解析异常类
+
 - **Persistence**: 持久化
   - WorkspaceMemento: 工作区状态快照
   - 文件IO操作
@@ -78,9 +107,12 @@
 Main
   └── CommandProcessor
         ├── Workspace
-        │     ├── Editor (TextEditor)
-        │     │     └── Command (各种具体命令)
-        │     └── LogManager
+        │     ├── Editor (TextEditor / XmlEditor)
+        │     │     └── Command (文本命令 / XML命令)
+        │     ├── LogManager
+        │     └── SessionStatistics (Lab2 新增)
+        ├── SpellCheckService (Lab2 新增)
+        │     └── SpellChecker (SimpleSpellChecker)
         └── Util (DirectoryTree)
 ```
 
@@ -102,9 +134,16 @@ public interface Command {
 }
 ```
 
+**Lab2 扩展：** 新增 XML 编辑命令
+- XmlInsertBeforeCommand: 在目标元素前插入新元素
+- XmlAppendChildCommand: 在父元素内追加子元素
+- XmlEditIdCommand: 修改元素 ID
+- XmlEditTextCommand: 修改元素文本内容
+- XmlDeleteElementCommand: 删除元素及其子元素
+
 #### 2.1.2 观察者模式 (Observer Pattern)
 
-**目的：** 实现日志记录的解耦
+**目的：** 实现日志记录和统计功能的解耦
 
 **实现：**
 ```java
@@ -113,15 +152,66 @@ public interface CommandObserver {
 }
 ```
 
+**Lab2 扩展：** SessionStatistics 作为观察者监听文件切换事件
+
 #### 2.1.3 备忘录模式 (Memento Pattern)
 
 **目的：** 实现工作区状态的持久化和恢复
+
+#### 2.1.4 组合模式 (Composite Pattern) - Lab2 新增
+
+**目的：** 表示 XML 树形结构
+
+**实现：**
+```java
+public class XmlElement {
+    private String tagName;
+    private String id;
+    private Map<String, String> attributes;
+    private String textContent;
+    private List<XmlElement> children;  // 子元素列表
+    private XmlElement parent;          // 父元素引用
+}
+```
+
+#### 2.1.5 适配器模式 (Adapter Pattern) - Lab2 新增
+
+**目的：** 
+1. 适配 XML 解析库（XmlAdapter）
+2. 隔离第三方拼写检查库依赖（SpellChecker 接口）
+
+**实现：**
+```java
+// XML 解析适配器
+public class XmlAdapter {
+    public XmlElement parse(String xmlContent);
+    public String serialize(XmlElement root);
+}
+
+// 拼写检查接口（支持替换不同实现）
+public interface SpellChecker {
+    List<SpellingError> checkText(String text);
+    boolean isCorrect(String word);
+    List<String> getSuggestions(String word);
+    boolean isAvailable();
+}
+```
+
+#### 2.1.6 装饰器模式 (Decorator Pattern) - Lab2 新增
+
+**目的：** 在显示文件列表时，为每个文件名添加编辑时长信息
+
+**应用场景：** editor-list 命令输出增强
 
 ### 2.2 数据结构设计
 
 #### 文本存储
 
 使用 `List<String>` 存储文本，每个元素代表一行。
+
+#### XML 存储 (Lab2 新增)
+
+使用 `XmlElement` 树形结构存储 XML，维护 `id -> element` 映射支持快速查找。
 
 #### Undo/Redo栈
 
@@ -168,7 +258,9 @@ mvn surefire-report:report
 
 ### 4.1 测试用例列表
 
-#### Editor层测试（13个测试用例）
+#### Lab1 原有测试
+
+##### TextEditor层测试（13个测试用例）
 - testInitialState - 初始状态测试
 - testAppend - 追加测试
 - testInsertSingleLine - 单行插入测试
@@ -183,7 +275,7 @@ mvn surefire-report:report
 - testGetContent - 获取内容测试
 - testSetLines - 设置行测试
 
-#### Command层测试（8个测试用例）
+##### Command层测试（7个测试用例）
 - testAppendCommand - 追加命令测试
 - testInsertCommand - 插入命令测试
 - testDeleteCommand - 删除命令测试
@@ -192,7 +284,7 @@ mvn surefire-report:report
 - testCommandIsModifying - 命令修改标记测试
 - testCommandDescription - 命令描述测试
 
-#### Workspace层测试（11个测试用例）
+##### Workspace层测试（11个测试用例）
 - testLoadExistingFile - 加载已存在文件测试
 - testLoadNonexistentFile - 加载不存在文件测试
 - testInitFile - 初始化文件测试
@@ -205,15 +297,90 @@ mvn surefire-report:report
 - testHasUnsavedChanges - 检查未保存更改测试
 - testMemento - 备忘录测试
 
-#### Logging层测试（4个测试用例）
+##### Logging层测试（4个测试用例）
 - testEnableDisableLogging - 启用/禁用日志测试
 - testOnCommandExecuted - 命令执行日志测试
 - testShowLogNonexistent - 显示不存在日志测试
 - testLoggingDisabled - 禁用日志测试
 
+#### Lab2 新增测试
+
+##### XmlEditor层测试（25个测试用例）
+- testLoadFromContent - 加载 XML 内容测试
+- testGetElementById - 根据 ID 获取元素测试
+- testInsertBefore - 在元素前插入测试
+- testInsertBeforeWithDuplicateId - 重复 ID 插入测试
+- testInsertBeforeInvalidTarget - 无效目标元素插入测试
+- testInsertBeforeRoot - 在根元素前插入测试
+- testAppendChild - 追加子元素测试
+- testAppendChildWithDuplicateId - 重复 ID 追加测试
+- testAppendChildToInvalidParent - 无效父元素追加测试
+- testAppendChildToElementWithText - 向文本元素追加子元素测试
+- testEditId - 修改元素 ID 测试
+- testEditIdNonexistent - 修改不存在元素 ID 测试
+- testEditIdDuplicate - 修改为已存在 ID 测试
+- testEditIdRoot - 修改根元素 ID 测试
+- testEditText - 修改元素文本测试
+- testEditTextNonexistent - 修改不存在元素文本测试
+- testEditTextOnParent - 修改父元素文本测试
+- testDeleteElement - 删除元素测试
+- testDeleteElementNonexistent - 删除不存在元素测试
+- testDeleteRoot - 删除根元素测试
+- testDeleteElementWithChildren - 删除有子元素的元素测试
+- testGenerateTree - 生成树形结构测试
+- testGetContent - 获取 XML 内容测试
+- testGetAllTextContents - 获取所有文本内容测试
+- testLoggingEnabled - 日志开关测试
+
+##### XmlAdapter层测试（10个测试用例）
+- testParseSimpleXml - 解析简单 XML 测试
+- testParseXmlWithChildren - 解析带子元素的 XML 测试
+- testParseXmlWithAttributes - 解析带属性的 XML 测试
+- testParseMissingId - 缺少 ID 属性解析测试
+- testParseInvalidXml - 无效 XML 解析测试
+- testSerializeSimple - 序列化简单元素测试
+- testSerializeWithChildren - 序列化带子元素测试
+- testSerializeWithAttributes - 序列化带属性测试
+- testRoundTrip - 解析-序列化往返测试
+- testEscapeSpecialCharacters - 特殊字符转义测试
+
+##### SessionStatistics层测试（12个测试用例）
+- testInitialState - 初始状态测试
+- testFileActivated - 文件激活测试
+- testFileSwitching - 文件切换测试
+- testFileClosed - 文件关闭测试
+- testCumulativeTime - 累计时间测试
+- testOnExit - 退出时测试
+- testFormatDurationSeconds - 秒格式化测试
+- testFormatDurationMinutes - 分钟格式化测试
+- testFormatDurationHours - 小时格式化测试
+- testFormatDurationDays - 天格式化测试
+- testInitFileStatistics - 初始化文件统计测试
+- testGetFormattedEditingTime - 获取格式化时间测试
+
+##### SpellCheck层测试（16个测试用例）
+- testIsAvailable - 检查器可用性测试
+- testCorrectWords - 正确单词测试
+- testCorrectWordsCaseInsensitive - 大小写不敏感测试
+- testIncorrectWords - 错误单词测试
+- testGetSuggestions - 获取建议测试
+- testCheckTextNoErrors - 无错误文本检查测试
+- testCheckTextWithErrors - 有错误文本检查测试
+- testCheckTextMultipleLines - 多行文本检查测试
+- testCheckTextSingleLetter - 单字母忽略测试
+- testCheckTextEditor - 文本编辑器检查测试
+- testCheckTextEditorWithErrors - 文本编辑器错误检查测试
+- testCheckXmlEditor - XML 编辑器检查测试
+- testCheckXmlEditorWithErrors - XML 编辑器错误检查测试
+- testCheckWithUnavailableChecker - 不可用检查器测试
+- testSpellingErrorFormat - 错误格式化测试
+- testSpellingErrorIsTextFileError - 文本文件错误判断测试
+
 ### 4.2 测试执行结果
-全部通过
-![alt text](image.png)
+
+全部 98 个测试通过：
+- Lab1 原有测试：35 个
+- Lab2 新增测试：63 个
 
 ## 5. 接口设计说明
 
